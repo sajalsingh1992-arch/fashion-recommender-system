@@ -18,5 +18,5 @@ myntradataset.zip
 .env
 .streamlit/secrets.toml
 
-# IDE settings
+# some more
 .idea/
