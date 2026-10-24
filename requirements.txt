@@ -12,3 +12,4 @@ scikit-image
 scipy
 joblib
 gdown
+gdown>=5.2.0
