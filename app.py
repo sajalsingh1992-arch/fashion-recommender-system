@@ -58,7 +58,7 @@ def setup_dataset():
                 url=GOOGLE_DRIVE_FOLDER_URL,
                 output=dataset_folder,
                 quiet=False,
-                remaining_ok=True,
+
             )
 
     except Exception as e:
