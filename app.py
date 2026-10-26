@@ -96,31 +96,39 @@ def setup_dataset():
             st.code(str(e))
             st.stop()
 
-    # 3. Verify ZIP contents and extract the dataset
+
+    # 3. Extract dataset from ZIP
     try:
         with zipfile.ZipFile(zip_path, "r") as archive:
-            names = set(archive.namelist())
+            names = archive.namelist()
 
-            has_images = any(
-                name.startswith("images/") and not name.endswith("/")
-                for name in names
+            image_files = [
+                n for n in names
+                if "/images/" in f"/{n}" and n.lower().endswith(".jpg")
+            ]
+            csv_file = next(
+                (n for n in names if n.endswith("styles.csv")), None
             )
-            has_csv = "styles.csv" in names
 
-            if not has_images or not has_csv:
-                st.error(
-                    "ZIP structure is incorrect. It must contain "
-                    "images/ and styles.csv at its root."
-                )
+            if not image_files or not csv_file:
+                st.error("ZIP must contain images and styles.csv.")
                 st.stop()
 
-            archive.extractall(dataset_folder)
+            import shutil
+
+            for name in image_files:
+                relative = name.split("images/", 1)[1]
+                target = os.path.join(images_folder, relative)
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+
+                with archive.open(name) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+
+            with archive.open(csv_file) as src, open(csv_path, "wb") as dst:
+                shutil.copyfileobj(src, dst)
 
     except zipfile.BadZipFile:
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
-
-        st.error("The ZIP file is damaged. Please retry.")
+        st.error("The ZIP file is damaged. Please upload it again.")
         st.stop()
 
     # 4. Confirm extraction worked
