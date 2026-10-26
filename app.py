@@ -111,9 +111,11 @@ def setup_dataset():
             )
 
             if not image_files or not csv_file:
-                st.error("ZIP must contain images and styles.csv.")
+                st.error(
+                    f"Image files found: {len(image_files)} | "
+                    f"CSV file found: {csv_file}"
+                )
                 st.stop()
-
             import shutil
 
             for name in image_files:
