@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import zipfile
 import requests
 import gdown
+from pathlib import Path
+import shutil
 
 st.set_page_config(
     page_title="Fashion Recommendation System",
@@ -32,73 +34,84 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # Google Drive Configuration
 GOOGLE_DRIVE_FOLDER_URL = (
     "https://drive.google.com/drive/folders/1zI-AZRM9tvF3lBqroqbot4R4HdN5_R5u"
 )
 
+
 @st.cache_resource
 def setup_dataset():
     dataset_folder = "myntradataset"
     images_folder = os.path.join(dataset_folder, "images")
-
-    # Reuse the dataset if it is already downloaded
-    if os.path.isdir(images_folder) and os.listdir(images_folder):
-        st.sidebar.success("✅ Dataset already loaded")
-        return dataset_folder
+    csv_path = os.path.join(dataset_folder, "styles.csv")
+    zip_path = "myntradataset.zip"
 
     os.makedirs(dataset_folder, exist_ok=True)
 
-    try:
-        with st.spinner(
-            "📥 Downloading Myntra dataset from Google Drive..."
-        ):
-            gdown.download_folder(
-                url=GOOGLE_DRIVE_FOLDER_URL,
-                output=dataset_folder,
-                quiet=False,
+    # Dataset already exists
+    if os.path.isdir(images_folder) and os.path.isfile(csv_path):
+        if os.listdir(images_folder):
+            st.sidebar.success("Dataset loaded")
+            return dataset_folder
 
-            )
+    # Download ZIP from Google Drive
+    drive_id = "17CzAqFnHmHo_NHctpU9hCXFK54Kg1afN"
 
-    except Exception as e:
-        st.error(f"Dataset download failed: {e}")
-        st.stop()
-
-    # Verify the required images folder exists
-    if not os.path.isdir(images_folder):
-        st.error(
-            "The images folder was not found after downloading. "
-            "Check the Google Drive folder structure and permissions."
+    if not os.path.isfile(zip_path) or not zipfile.is_zipfile(zip_path):
+        gdown.download(
+            id=drive_id,
+            output=zip_path,
+            quiet=False
         )
+
+    if not os.path.isfile(zip_path) or not zipfile.is_zipfile(zip_path):
+        st.error("Could not download dataset ZIP.")
         st.stop()
 
-    if not os.listdir(images_folder):
-        st.error("The images folder is empty.")
+    # Extract images and CSV
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        archive.extractall(dataset_folder)
+
+    if not os.path.isdir(images_folder) or not os.path.isfile(csv_path):
+        st.error("Dataset files are missing after extraction.")
         st.stop()
 
-    st.sidebar.success("✅ Dataset downloaded successfully")
+    st.sidebar.success("Dataset downloaded")
     return dataset_folder
+
+
+
 
 
 class FeatureExtractor:
     def __init__(self, model_name='resnet18'):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(
+            'cuda' if torch.cuda.is_available() else 'cpu'
+        )
 
         if model_name == 'resnet50':
-            self.model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+            self.model = models.resnet50(
+                weights=models.ResNet50_Weights.IMAGENET1K_V1
+            )
         else:
-            self.model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+            self.model = models.resnet18(
+                weights=models.ResNet18_Weights.IMAGENET1K_V1
+            )
 
-        self.model = nn.Sequential(*list(self.model.children())[:-1])
+        self.model = nn.Sequential(
+            *list(self.model.children())[:-1]
+        )
         self.model = self.model.to(self.device)
         self.model.eval()
 
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
         ])
 
     def extract_features(self, image):
@@ -116,7 +129,6 @@ class FeatureExtractor:
             features = self.model(image_tensor)
 
         return features.squeeze().cpu().numpy()
-
 
 
 class FashionRecommender:
@@ -173,7 +185,7 @@ class FashionRecommender:
 
 
 @st.cache_resource
-def load_model():
+def load_model(dataset_folder):
     if not os.path.exists('models/fashion_recommender.pkl'):
         st.error("Model not found! Please train the model first.")
         st.code("python train_myntra_model.py")
@@ -186,8 +198,35 @@ def load_model():
     metadata = model_data['metadata']
 
     # Fix Windows paths to work on Linux (Streamlit Cloud)
-    if 'image_path' in metadata.columns:
-        metadata['image_path'] = metadata['image_path'].str.replace('\\', '/', regex=False)
+    images_folder = os.path.join(dataset_folder, "images")
+
+    if "image_path" in metadata.columns:
+        filenames = metadata["image_path"].astype(str).apply(
+            lambda path: os.path.basename(path.replace("\\", "/"))
+        )
+    elif "filename" in metadata.columns:
+        filenames = metadata["filename"].astype(str).apply(
+            lambda path: os.path.basename(path.replace("\\", "/"))
+        )
+    elif "image_id" in metadata.columns:
+        filenames = metadata["image_id"].astype(str) + ".jpg"
+    else:
+        st.error("No image filename or image ID found in the model metadata.")
+        st.stop()
+
+    filenames = filenames.apply(
+        lambda name: name if os.path.splitext(name)[1] else name + ".jpg"
+    )
+
+    metadata["image_path"] = filenames.apply(
+        lambda name: os.path.join(images_folder, name)
+    )
+
+    existing_images = metadata["image_path"].apply(os.path.isfile).sum()
+
+    st.sidebar.info(
+        f"Images found: {existing_images:,} / {len(metadata):,}"
+    )
 
     st.sidebar.success("Model Loaded!")
     st.sidebar.info(f"Items: {len(metadata):,}")
@@ -339,7 +378,7 @@ def main():
     # Setup dataset from Google Drive (downloads on first run only)
     dataset_path = setup_dataset()
 
-    recommender, extractor, metadata = load_model()
+    recommender, extractor, metadata = load_model(dataset_path)
 
     st.sidebar.title("Navigation")
     mode = st.sidebar.radio("Select Mode", ["Browse Catalog", "Upload Image", "Analytics"],
@@ -355,6 +394,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
