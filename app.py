@@ -40,6 +40,7 @@ GOOGLE_DRIVE_FOLDER_URL = (
 )
 
 
+
 @st.cache_resource
 def setup_dataset():
     dataset_folder = "myntradataset"
@@ -47,41 +48,102 @@ def setup_dataset():
     csv_path = os.path.join(dataset_folder, "styles.csv")
     zip_path = "myntradataset.zip"
 
-    os.makedirs(dataset_folder, exist_ok=True)
-
-    # Dataset already exists
-    if os.path.isdir(images_folder) and os.path.isfile(csv_path):
-        if os.listdir(images_folder):
-            st.sidebar.success("Dataset loaded")
-            return dataset_folder
-
-    # Download ZIP from Google Drive
     drive_id = "17CzAqFnHmHo_NHctpU9hCXFK54Kg1afN"
 
+    os.makedirs(dataset_folder, exist_ok=True)
+
+    # 1. Reuse an already extracted dataset
+    if (
+        os.path.isdir(images_folder)
+        and os.path.isfile(csv_path)
+        and any(os.scandir(images_folder))
+    ):
+        st.sidebar.success("Dataset loaded")
+        return dataset_folder
+
+    # 2. Download the ZIP only if it is not already valid
     if not os.path.isfile(zip_path) or not zipfile.is_zipfile(zip_path):
-        gdown.download(
-            id=drive_id,
-            output=zip_path,
-            quiet=False
+        # Remove any incomplete ZIP left by a previous failed download
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+
+        try:
+            with st.spinner("Downloading fashion dataset from Google Drive..."):
+                downloaded_file = gdown.download(
+                    url=f"https://drive.google.com/uc?id={drive_id}",
+                    output=zip_path,
+                    quiet=False,
+                    fuzzy=True
+                )
+
+            if (
+                not downloaded_file
+                or not os.path.isfile(zip_path)
+                or not zipfile.is_zipfile(zip_path)
+            ):
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+
+                st.error(
+                    "Google Drive did not provide a valid ZIP file. "
+                    "Check that the file is shared as Anyone with the link "
+                    "and that Google Drive has not restricted downloads."
+                )
+                st.stop()
+
+        except Exception as e:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+
+            st.error(
+                "Dataset download failed. Google Drive may be blocking "
+                "the Streamlit Cloud request or limiting downloads."
+            )
+            st.code(str(e))
+            st.stop()
+
+    # 3. Verify that the ZIP contains the expected files
+    try:
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            names = set(archive.namelist())
+
+            has_images = any(
+                name.startswith("images/") and not name.endswith("/")
+                for name in names
+            )
+            has_csv = "styles.csv" in names
+
+            if not has_images or not has_csv:
+                st.error(
+                    "The ZIP structure is incorrect. It must contain "
+                    "images/ and styles.csv at its root."
+                )
+                st.stop()
+
+            # 4. Extract to the folder expected by the recommender
+            archive.extractall(dataset_folder)
+
+    except zipfile.BadZipFile:
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+
+        st.error("The downloaded ZIP is damaged. Please retry the download.")
+        st.stop()
+
+    # 5. Confirm extraction worked
+    if (
+        not os.path.isdir(images_folder)
+        or not os.path.isfile(csv_path)
+        or not any(os.scandir(images_folder))
+    ):
+        st.error(
+            "Dataset extraction was incomplete. "
+            "Expected myntradataset/images/ and myntradataset/styles.csv."
         )
-
-    if not os.path.isfile(zip_path) or not zipfile.is_zipfile(zip_path):
-        st.error("Could not download dataset ZIP.")
         st.stop()
 
-    # Extract images and CSV
-    with zipfile.ZipFile(zip_path, "r") as archive:
-        archive.extractall(dataset_folder)
-
-    if not os.path.isdir(images_folder) or not os.path.isfile(csv_path):
-        st.error("Dataset files are missing after extraction.")
-        st.stop()
-
-    st.sidebar.success("Dataset downloaded")
+    st.sidebar.success("Dataset downloaded and extracted")
     return dataset_folder
-
-
-
 
 
 class FeatureExtractor:
@@ -263,7 +325,7 @@ def browse_catalog_mode(recommender, metadata):
                 img = Image.open(item['image_path'])
                 st.image(img, use_container_width=True)
                 if st.button("Select", key=f"btn_{idx}"):
-                    selected_idx = item.name
+                    selected_idx = metadata.index.get_loc(item.name)
             except:
                 st.write("Error")
 
