@@ -97,29 +97,37 @@ def setup_dataset():
             st.stop()
 
 
-    # 3. Extract dataset from ZIP
-    try:
-        with zipfile.ZipFile(zip_path, "r") as archive:
-            names = archive.namelist()
 
-            image_files = [
-                n for n in names
-                if "/images/" in f"/{n}" and n.lower().endswith(".jpg")
-            ]
-            csv_file = next(
-                (n for n in names if n.endswith("styles.csv")), None
-            )
+    # 3. Extract images and styles.csv
+    try:
+        import shutil
+
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            image_files = []
+            csv_file = None
+
+            for name in archive.namelist():
+                path = name.replace("\\", "/")
+                lower = path.lower()
+
+                if "/images/" in "/" + lower and lower.endswith(
+                    (".jpg", ".jpeg", ".png", ".webp")
+                ):
+                    start = lower.find("images/") + len("images/")
+                    image_files.append((name, path[start:]))
+
+                if lower.rstrip("/").split("/")[-1] == "styles.csv":
+                    csv_file = name
 
             if not image_files or not csv_file:
                 st.error(
-                    f"Image files found: {len(image_files)} | "
-                    f"CSV file found: {csv_file}"
+                    f"Images found: {len(image_files)}; CSV found: {csv_file}"
                 )
                 st.stop()
-            import shutil
 
-            for name in image_files:
-                relative = name.split("images/", 1)[1]
+            os.makedirs(images_folder, exist_ok=True)
+
+            for name, relative in image_files:
                 target = os.path.join(images_folder, relative)
                 os.makedirs(os.path.dirname(target), exist_ok=True)
 
@@ -130,7 +138,7 @@ def setup_dataset():
                 shutil.copyfileobj(src, dst)
 
     except zipfile.BadZipFile:
-        st.error("The ZIP file is damaged. Please upload it again.")
+        st.error("The ZIP file is damaged.")
         st.stop()
 
     # 4. Confirm extraction worked
