@@ -13,3 +13,4 @@ scipy
 joblib
 gdown
 gdown>=5.2.0
+requests

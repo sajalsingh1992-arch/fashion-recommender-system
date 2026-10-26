@@ -34,12 +34,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Google Drive Configuration
-GOOGLE_DRIVE_FOLDER_URL = (
-    "https://drive.google.com/drive/folders/1zI-AZRM9tvF3lBqroqbot4R4HdN5_R5u"
-)
-
-
 
 @st.cache_resource
 def setup_dataset():
@@ -47,8 +41,6 @@ def setup_dataset():
     images_folder = os.path.join(dataset_folder, "images")
     csv_path = os.path.join(dataset_folder, "styles.csv")
     zip_path = "myntradataset.zip"
-
-    drive_id = "17CzAqFnHmHo_NHctpU9hCXFK54Kg1afN"
 
     os.makedirs(dataset_folder, exist_ok=True)
 
@@ -61,48 +53,50 @@ def setup_dataset():
         st.sidebar.success("Dataset loaded")
         return dataset_folder
 
-    # 2. Download the ZIP only if it is not already valid
+    # 2. Download ZIP from Hugging Face
+    download_url = (
+        "https://huggingface.co/datasets/"
+        "sajalsingh-09/myntra-fashion-dataset/"
+        "resolve/main/myntradataset.zip"
+    )
+
     if not os.path.isfile(zip_path) or not zipfile.is_zipfile(zip_path):
-        # Remove any incomplete ZIP left by a previous failed download
         if os.path.exists(zip_path):
             os.remove(zip_path)
 
         try:
-            with st.spinner("Downloading fashion dataset from Google Drive..."):
-                downloaded_file = gdown.download(
-                    url=f"https://drive.google.com/uc?id={drive_id}",
-                    output=zip_path,
-                    quiet=False,
-                    fuzzy=True
-                )
+            import requests
 
-            if (
-                not downloaded_file
-                or not os.path.isfile(zip_path)
-                or not zipfile.is_zipfile(zip_path)
-            ):
-                if os.path.exists(zip_path):
-                    os.remove(zip_path)
+            with st.spinner("Downloading fashion dataset from Hugging Face..."):
+                with requests.get(
+                    download_url,
+                    stream=True,
+                    timeout=(30, 600)
+                ) as response:
+                    response.raise_for_status()
 
-                st.error(
-                    "Google Drive did not provide a valid ZIP file. "
-                    "Check that the file is shared as Anyone with the link "
-                    "and that Google Drive has not restricted downloads."
+                    with open(zip_path, "wb") as file:
+                        for chunk in response.iter_content(
+                            chunk_size=1024 * 1024
+                        ):
+                            if chunk:
+                                file.write(chunk)
+
+            if not zipfile.is_zipfile(zip_path):
+                raise ValueError(
+                    "The downloaded file is not a valid ZIP archive. "
+                    "Check that the Hugging Face dataset repository is public."
                 )
-                st.stop()
 
         except Exception as e:
             if os.path.exists(zip_path):
                 os.remove(zip_path)
 
-            st.error(
-                "Dataset download failed. Google Drive may be blocking "
-                "the Streamlit Cloud request or limiting downloads."
-            )
+            st.error("Dataset download from Hugging Face failed.")
             st.code(str(e))
             st.stop()
 
-    # 3. Verify that the ZIP contains the expected files
+    # 3. Verify ZIP contents and extract the dataset
     try:
         with zipfile.ZipFile(zip_path, "r") as archive:
             names = set(archive.namelist())
@@ -115,30 +109,29 @@ def setup_dataset():
 
             if not has_images or not has_csv:
                 st.error(
-                    "The ZIP structure is incorrect. It must contain "
+                    "ZIP structure is incorrect. It must contain "
                     "images/ and styles.csv at its root."
                 )
                 st.stop()
 
-            # 4. Extract to the folder expected by the recommender
             archive.extractall(dataset_folder)
 
     except zipfile.BadZipFile:
         if os.path.exists(zip_path):
             os.remove(zip_path)
 
-        st.error("The downloaded ZIP is damaged. Please retry the download.")
+        st.error("The ZIP file is damaged. Please retry.")
         st.stop()
 
-    # 5. Confirm extraction worked
+    # 4. Confirm extraction worked
     if (
         not os.path.isdir(images_folder)
         or not os.path.isfile(csv_path)
         or not any(os.scandir(images_folder))
     ):
         st.error(
-            "Dataset extraction was incomplete. "
-            "Expected myntradataset/images/ and myntradataset/styles.csv."
+            "Dataset extraction was incomplete. Expected "
+            "myntradataset/images/ and myntradataset/styles.csv."
         )
         st.stop()
 
