@@ -33,7 +33,8 @@ streamlit run app.py
 
 ## Dataset and Model
 
-The app uses the Myntra fashion dataset, which is downloaded from Google Drive when the app starts. The trained recommendation model is stored in the `models` directory.
+The app uses the Myntra fashion dataset, which is downloaded from hugging face
+when the app starts. The trained recommendation model is stored in the `models` directory.
 
 The dataset is not included in this repository because of its size.
 
